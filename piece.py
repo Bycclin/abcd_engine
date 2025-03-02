@@ -73,9 +73,11 @@ class Position:
     def __init__(self):
         self.is_checkmate = [False, False]
         self.is_draw = False
+        # Initialize king positions as squares (using bitboard indices): white king on 4 (e1), black king on 60 (e8)
+        self.kp = (4, 60)
         self.is_check = [False, False]
-        self.wc = (False, False)
-        self.bc = (False, False)
+        self.wc = (True, True)
+        self.bc = (True, True)
         self._initial = {
             'white': [
                 0x000000000000FF00, 
@@ -134,35 +136,48 @@ class Position:
         overall = self._board
         opponent_board = overall & ~friendly_board
         for square in range(64):
-            if not (friendly_board & (1 << square)): continue
+            if not (friendly_board & (1 << square)):
+                continue
             piece = self.piece_square(square, color)
-            if piece is None: continue
-            for direction in directions[piece.upper()]:
-                adj_direction = direction
-                if piece.upper() == 'P' and color == 'black':
-                    adj_direction = -direction
-                new_square = square + adj_direction
-                if new_square < 0 or new_square >= 64:
-                    continue
-                old_file, new_file = square % 8, new_square % 8
-                if abs(new_file - old_file) > 2:
-                    continue
-                if friendly_board & (1 << new_square):
-                    continue
-                if piece.upper() == 'P':
-                    if color == 'white':
-                        forward, diag_moves = 8, [7, 9]
-                    else:
-                        forward, diag_moves = -8, [-7, -9]
-                    if adj_direction == forward:
-                        if overall & (1 << new_square):
-                            continue
-                    elif adj_direction in diag_moves:
-                        if not (opponent_board & (1 << new_square)):
-                            continue
-                if self.wc[0] and color == 'white' or self.bc[0] and color == "black":#
-                    moves.append(())                                                  # Add check if the rook can "slide" to the king
-                moves.append((self._square_to_coord(square), self._square_to_coord(new_square)))
+            if piece is None:
+                continue
+            if piece.upper() == 'P':
+                for direction in directions[piece.upper()]:
+                    adj_direction = direction
+                    if piece.upper() == 'P' and color == 'black':
+                        adj_direction = -direction
+                    new_square = square + adj_direction
+                    if new_square < 0 or new_square >= 64:
+                        continue
+                    old_file, new_file = square % 8, new_square % 8
+                    if abs(new_file - old_file) > 2:
+                        continue
+                    if friendly_board & (1 << new_square):
+                        continue
+                    if piece.upper() == 'P':
+                        if color == 'white':
+                            forward, diag_moves = 8, [7, 9]
+                        else:
+                            forward, diag_moves = -8, [-7, -9]
+                        if adj_direction == forward:
+                            if overall & (1 << new_square):
+                                continue
+                        elif adj_direction in diag_moves:
+                            if not (opponent_board & (1 << new_square)):
+                                continue
+                    moves.append((self._square_to_coord(square), self._square_to_coord(new_square)))
+                if color == 'white' and square == 4:
+                    # Kingside castling: squares 5 and 6 must be empty
+                    if self.wc[0] and not (overall & ((1 << 5) | (1 << 6))):
+                        moves.append((self._square_to_coord(4), self._square_to_coord(6)))
+                    # Queenside castling: squares 1,2,3 must be empty
+                    if self.wc[1] and not (overall & ((1 << 1) | (1 << 2) | (1 << 3))):
+                        moves.append((self._square_to_coord(4), self._square_to_coord(2)))
+                elif color == 'black' and square == 60:
+                    if self.bc[0] and not (overall & ((1 << 61) | (1 << 62))):
+                        moves.append((self._square_to_coord(60), self._square_to_coord(62)))
+                    if self.bc[1] and not (overall & ((1 << 57) | (1 << 58) | (1 << 59))):
+                        moves.append((self._square_to_coord(60), self._square_to_coord(58)))
         return moves
     def move_piece(self, start, end):
         s_x, s_y = start
@@ -174,6 +189,17 @@ class Position:
             end_m   = 1 << end_sq
         except:
             return False
+        f_piece, l_piece = self.piece_square(start_sq, "white"), self.piece_square(start_sq, "black")
+        if f_piece.isspace(): piece = l_piece
+        if l_piece.isspace(): piece = f_piece
+        if start_sq == 63 and piece.islower(): self.bc = (False, self.bc[1])
+        if start_sq == 56 and piece.islower(): self.bc = (self.bc[0], False)
+        if start_sq == 63 and piece.isupper(): self.bc = (False, self.bc[1])
+        if start_sq == 56 and piece.isupper(): self.bc = (self.bc[0], False)
+        if end_sq == 0 and piece.isupper(): self.wc = (self.wc[0], False)
+        if end_sq == 7 and piece.isupper(): self.wc = (False, self.wc[1])
+        if end_sq == 0 and piece.islower(): self.wc = (self.wc[0], False)
+        if end_sq == 7 and piece.islower(): self.wc = (False, self.wc[1])
         self._history.append((self._board, { 'white': self._initial['white'][:], 'black': self._initial['black'][:] }))
         moved_color = None
         for color in ['white', 'black']:
