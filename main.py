@@ -29,16 +29,6 @@ predict_opponent_move = None
 # Is an added up some of ascii binary values of rnbkq
 # as pieces and 0's as empty spaces.
 # bin_startpos = 2496
-initial_board = [
-    ["r", "n", "b", "q", "k", "b", "n", "r"],
-    ["p", "p", "p", "p", "p", "p", "p", "p"],
-    [" ", " ", " ", " ", " ", " ", " ", " "],
-    [" ", " ", " ", " ", " ", " ", " ", " "],
-    [" ", " ", " ", " ", " ", " ", " ", " "],
-    [" ", " ", " ", " ", " ", " ", " ", " "],
-    ["P", "P", "P", "P", "P", "P", "P", "P"],
-    ["R", "N", "B", "Q", "K", "B", "N", "R"],
-]
 try:
     with open("data.dat", "rb") as f:
         if __name__ == "__main__":
@@ -82,22 +72,12 @@ def update_q_table(state, action, reward, next_state):
     state_tuple = tuple(tuple(row) for row in state)
     next_state_tuple = tuple(tuple(row) for row in next_state)
     current_q = get_q_value(state, action)
-    next_q_values = [get_q_value(next_state, a) for a in get_all_moves(next_state)]
+    next_q_values = [get_q_value(next_state, a) for a in next_state.genMoves("White")]
     max_next_q = max(next_q_values, default=0)
     new_q = current_q + learning_rate * (reward + discount_factor * max_next_q - current_q)
     q_table[(state_tuple, action)] = new_q
-def get_t_key(board, t_table):
-    if len(t_table) == 0:
-        return 1000000000000000
-    # copy just the keys
-    keys = [_ for _ in t_table]
-    keys.sort()
-    for k, p in t_table.items():
-        if p[0] == board:
-            return k
-    return keys[0] - 1
 def negamax(board, depth, alpha, beta, color, last_move, t_table):
-    if depth == 0 or is_game_over(board):
+    if depth == 0:# or is_game_over(board):
         #start = time.time()
         values = quiescence_search(board, alpha, beta, color, last_move, t_table)
         #print("Quiesce time:", time.time()-start)
@@ -106,16 +86,15 @@ def negamax(board, depth, alpha, beta, color, last_move, t_table):
     total_nodes = 0
     alpha_original = alpha
     player_color = 'White' if color == 1 else 'Black'
-    if depth >= 3 and not is_check(board)[player_color.lower()] and not is_endgame(board):
+    if depth >= 3 and not board.is_check(): #and not is_endgame(board):
         #start = time.time()
         score, best_move, nodes = negamax(board, depth - 3, -beta, -beta + 1, -color, last_move, t_table)
         #print("No-branches search:", time.time()-start)
         total_nodes += nodes
         if score >= beta:
             return beta, best_move, total_nodes
-    moves = get_all_moves(board, player_color, last_move)
+    moves = board.genMoves(player_color)
     moves = order_moves(board, moves, player_color, last_move, depth)
-    first_move = True
     state_tuple = tuple(tuple(row) for row in board)
     for move in moves:
         if (state_tuple, move) in q_table:
@@ -127,7 +106,7 @@ def negamax(board, depth, alpha, beta, color, last_move, t_table):
         total_nodes += 1
         previous_last_move = last_move
         last_move = move
-        is_in_check = is_check(temp_board)[player_color.lower()]
+        is_in_check = board.is_check(temp_board)
         is_capture = board[move[1][0]][move[1][1]] != " "
         is_promotion = board[move[0][0]][move[0][1]].lower() == "p" and move[1][0] == 0 or move[1][0] == 7
         gives_check = False
@@ -152,14 +131,14 @@ def negamax(board, depth, alpha, beta, color, last_move, t_table):
             alpha = score
     return alpha, best_move, total_nodes
 def quiescence_search(board, alpha, beta, color, last_move, t_table, depth=0, max_q_depth=3):
-    key = get_t_key(board, t_table)
+    key = board.hash()
     if key in t_table:
         stand_pat = color * t_table[key][1]
     else:
         stand_pat = evaluate(board)
         t_table[key] = (board, stand_pat)
         stand_pat *= color
-    if depth >= max_q_depth or is_game_over(board):
+    if depth >= max_q_depth: #or is_game_over(board):
         return stand_pat, None, 1
     if stand_pat >= beta:
         return beta, None, 1
@@ -167,11 +146,11 @@ def quiescence_search(board, alpha, beta, color, last_move, t_table, depth=0, ma
         alpha = stand_pat
     total_nodes = 1
     player_color = 'White' if color == 1 else 'Black'
-    if not is_check(board)[player_color.lower()] and not is_endgame(board):
+    if not board.is_check(board): #and not is_endgame(board):
         score = stand_pat
         if score >= beta:
             return beta, None, None
-    allmoves = get_all_moves(board, player_color, last_move)
+    allmoves = board.genMoves(player_color)
     moves = []
     for move in allmoves:
         end_pos = board[move[1][0]][move[1][1]]
@@ -184,11 +163,11 @@ def quiescence_search(board, alpha, beta, color, last_move, t_table, depth=0, ma
         #temp_board[move[1][0]][move[1][1]] = temp_board[move[0][0]][move[0][1]]
         #temp_board[move[0][0]][move[0][1]] = " "
         capture = board[move[1][0]][move[1][1]]
-        move_piece(board, move[0], move[1], last_move)
+        board.move_piece(move[0], move[1])
         previous_last_move = last_move
         last_move = move
         score, _, nodes = quiescence_search(board, -beta, -alpha, -color, last_move, t_table, depth + 1, max_q_depth)
-        undo_move(board, move, capture)
+        board.undo_move()
         total_nodes += nodes
         last_move = previous_last_move
         score = -score
@@ -235,8 +214,8 @@ def order_moves(board, moves, player_color, last_move=None, depth=0):
             score += -evaluate(temp_board)
         else:
             score += evaluate(temp_board)
-        player_squares = get_all_moves(board, player_color, last_move)
-        opponent_squares = get_all_moves(board, opponent_color, last_move)
+        player_squares = board.genMoves(player_color)
+        opponent_squares = board.genMoves(opponent_color)
         if end_pos in opponent_squares and end_pos not in player_squares:
             score -= math.factorial(piece_val) + 10000
         q_value = get_q_value(board, move)
@@ -246,14 +225,14 @@ def order_moves(board, moves, player_color, last_move=None, depth=0):
     ordered_moves = [move for score, move in move_scores]
     return ordered_moves
 def play_chess():
-    board = copy.deepcopy(initial_board)
+    board = Position()
     player_color = 'White'
     last_move = None
     t_table = {}
     mode = input("Do you want to play against a person or the computer? ").strip().lower()
     if mode in ["person", "play against a person"]:
         while True:
-            print_board(board)
+            board.print_board()
             move = input(f"{player_color}'s turn. Enter your move (e.g., e2 e4): ").strip()
             if move.lower() == 'quit':
                 save_q_table(q_table)
@@ -262,9 +241,8 @@ def play_chess():
             if parsed_move is None:
                 print("Invalid input. Please enter your move in the format 'e2 e4'.")
                 continue
-            start_pos, end_pos = parsed_move
-            if is_valid_move(board, start_pos, end_pos, player_color, last_move, False):
-                valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
+            if parsed_move not in board.genMoves(player_color):
+                valid_move, last_move = board.move_piece(board, start_pos, end_pos, last_move)
                 if valid_move:
                     handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]])
                     if is_checkmate(board, 'black' if player_color == 'White' else 'white'):
@@ -281,7 +259,7 @@ def play_chess():
             else:
                 print("Invalid move. Try again.")
     elif mode in ["computer", "play against the computer"]:
-        print_board(board)
+        board.print_board()
         first_open = True
         while True:
             move_valid = False
@@ -294,13 +272,12 @@ def play_chess():
                 if parsed_move is None:
                     print("Invalid input, please enter a move in the correct format (e.g., e2 e4).")
                     continue
-                start_pos, end_pos = parsed_move
-                move_result = is_valid_move(board, start_pos, end_pos, "White", last_move, False)
+                move_result = move not in board.genMoves("White")
                 if move_result:
-                    valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
+                    valid_move, last_move = board.move_piece(parsed_move[0], parsed_move[1])
                     if valid_move:
                         handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]])
-                        print_board(board)
+                        board.print_board()
                         if is_checkmate(board, 'black'):
                             print("Checkmate! White wins!")
                             save_q_table(q_table)
@@ -318,8 +295,8 @@ def play_chess():
                 if white_move in openings:
                     computer_move = random.choice(openings[white_move])
                     start_pos, end_pos = parse_move(computer_move)
-                    valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
-                    print_board(board)
+                    valid_move, last_move = board.move_piece(start_pos, end_pos)
+                    board.print_board()
                     first_open = False
                     continue
             state = copy.deepcopy(board)
@@ -329,10 +306,10 @@ def play_chess():
             ttime = etime - stime
             print(f"time: {ttime} nodes: {nodes} depth: {depth} score: {evaluate(board)}")
             start_pos, end_pos = action
-            valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
+            valid_move, last_move = board.move_piece(start_pos, end_pos)
             if valid_move:
                 handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
-                print_board(board)
+                board.print_board()
                 if is_checkmate(board, 'white'):
                     print("Checkmate! Black wins!")
                     save_q_table(q_table)
@@ -342,8 +319,10 @@ def play_chess():
                     save_q_table(q_table)
                     return
                 reward = 0
-                if is_check(board)["white"]:
+                board.rotate()
+                if board.is_check():
                     reward = 1
+                board.rotate()
                 reward += evaluate(board) * -1
                 next_state = copy.deepcopy(board)
                 update_q_table(state, action, reward, next_state)
@@ -352,14 +331,14 @@ def play_chess():
         print("Invalid choice.")
         play_chess()
 def sim_chess():
-    board = copy.deepcopy(initial_board)
+    board = Position()
     last_move = None
     first_open = True
     hist = []
     t_table = {}
-    print_board(board)
+    board.print_board()
     while True:
-        state = copy.deepcopy(initial_board)
+        state = Position()
         stime = time.time()
         white_move, depth, nodes = search(board, t_table, computer_color="White")
         #depth, nodes = "null", "null"
@@ -372,10 +351,10 @@ def sim_chess():
         ttime = etime - stime
         print(f"time: {ttime} nodes: {nodes} depth: {depth} score: {evaluate(board)}")
         start_pos, end_pos = white_move
-        valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
+        valid_move, last_move = board.move_piece(start_pos, end_pos)
         if valid_move:
             handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
-            print_board(board)
+            board.print_board()
             if is_checkmate(board, 'black'):
                 print("Checkmate! White wins!")
                 save_q_table(q_table)
@@ -385,8 +364,10 @@ def sim_chess():
                 save_q_table(q_table)
                 return
             white_reward = 0
-            if is_check(board)["black"]:
+            board.rotate()
+            if board.is_check():
                 white_reward = 1
+            board.rotate()
             white_reward += evaluate(board)
             next_state = copy.deepcopy(board)
             update_q_table(state, white_move, white_reward, next_state)
@@ -395,8 +376,8 @@ def sim_chess():
             if white_move in openings:
                 computer_move = random.choice(openings[white_move])
                 start_pos, end_pos = parse_move(computer_move)
-                valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
-                print_board(board)
+                valid_move, last_move = board.move_piece(start_pos, end_pos)
+                board.print_board()
                 first_open = False
                 continue
         state = copy.deepcopy(board)
@@ -412,10 +393,10 @@ def sim_chess():
         ttime = etime - stime
         print(f"time: {ttime} nodes: {nodes} depth: {depth} score: {evaluate(board)}")
         start_pos, end_pos = black_move
-        valid_move, last_move = move_piece(board, start_pos, end_pos, last_move)
+        valid_move, last_move = board.move_piece(start_pos, end_pos)
         if valid_move:
             handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
-            print_board(board)
+            board.print_board()
             if is_checkmate(board, 'white'):
                 print("Checkmate! Black wins!")
                 save_q_table(q_table)
@@ -425,8 +406,10 @@ def sim_chess():
                 save_q_table(q_table)
                 return
             reward = 0
-            if is_check(board)["white"]:
+            board.rotate()
+            if board.is_check():
                 reward = 1
+            board.rotate()
             reward += evaluate(board) * -1
             next_state = copy.deepcopy(board)
             update_q_table(state, black_move, reward, next_state)
