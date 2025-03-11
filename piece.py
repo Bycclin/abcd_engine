@@ -1,6 +1,7 @@
+from random import getrandbits
 piece_values = {"P": 100, "N": 280, "B": 320, "R": 479, "Q": 929, "K": 60000}
-piece_to_index = {'P': 0, 'N':1, 'B':2, 'R':3, 'Q':4, 'K':5,
-                  'p':6, 'n':7, 'b':8, 'r':9, 'q':10, 'k':11}
+piece_to_index = {'P': 0, 'N': 1, 'B': 2, 'R': 3, 'Q': 4, 'K': 5,
+                  'p': 6, 'n': 7, 'b': 8, 'r': 9, 'q': 10, 'k': 11}
 #TODO: do this for the check:
 #where when no legal move can prevent a situation where the king can be “captured”,
 unicode_pieces = {
@@ -25,7 +26,7 @@ pst = {
           [ -18,  10,  13,  22,  18,  15,  11, -14],
           [ -23, -15,   2,   0,   2,   0, -23, -20],
           [ -74, -23, -26, -24, -19, -35, -22, -69]),
-    'B': ([ -59, -78, -82, -76, -23,-107, -37, -50],
+    'B': ([ -59, -78, -82, -76, -23, -107, -37, -50],
           [ -11,  20,  35, -42, -39,  31,   2, -22],
           [  -9,  39, -32,  41,  52, -10,  28, -14],
           [  25,  17,  20,  34,  26,  25,  15,  10],
@@ -41,14 +42,14 @@ pst = {
           [ -42, -28, -42, -25, -25, -35, -26, -46],
           [ -53, -38, -31, -26, -29, -43, -44, -53],
           [ -30, -24, -18,   5,  -2, -18, -31, -32]),
-    'Q': ([   6,   1,  -8,-104,  69,  24,  88,  26],
-          [  14,  32,  60, -10,  20,  76,  57,  24],
-          [  -2,  43,  32,  60,  72,  63,  43,   2],
-          [   1, -16,  22,  17,  25,  20, -13,  -6],
-          [ -14, -15,  -2,  -5,  -1, -10, -20, -22],
-          [ -30,  -6, -13, -11, -16, -11, -16, -27],
-          [ -36, -18,   0, -19, -15, -15, -21, -38],
-          [ -39, -30, -31, -13, -31, -36, -34, -42]),
+    'Q': ([   6,   1,  -8, -104,  69,  24,  88,  26],
+          [  14,  32,  60,  -10,  20,  76,  57,  24],
+          [  -2,  43,  32,   60,  72,  63,  43,   2],
+          [   1, -16,  22,   17,  25,  20, -13,  -6],
+          [ -14, -15,  -2,   -5,  -1, -10, -20, -22],
+          [ -30,  -6, -13,  -11, -16, -11, -16, -27],
+          [ -36, -18,   0,  -19, -15, -15, -21, -38],
+          [ -39, -30, -31,  -13, -31, -36, -34, -42]),
     'K': ([   4,  54,  47, -99, -99,  60,  83, -62],
           [ -32,  10,  55,  56,  56,  55,  10,   3],
           [ -62,  12, -57,  44, -67,  28,  37, -31],
@@ -69,13 +70,10 @@ directions = {
     "Q": (N, E, S, W, N+E, S+E, S+W, N+W),
     "K": (N, E, S, W, N+E, S+E, S+W, N+W)
 }
+
 class Position:
     def __init__(self):
-        self.is_checkmate = [False, False]
-        self.is_draw = False
-        # Initialize king positions as squares (using bitboard indices): white king on 4 (e1), black king on 60 (e8)
-        self.kp = (4, 60)
-        self.is_check = [False, False]
+        self.kp = 4
         self.wc = (True, True)
         self.bc = (True, True)
         self._initial = {
@@ -101,29 +99,21 @@ class Position:
         for col in self._initial:
             for bb in self._initial[col]:
                 self._board |= bb
-        seed = 0xABCDEF
-        a = 6364136223846793005
-        c = 1
-        m = 2**64
-        def lcg():
-            nonlocal seed
-            while True:
-                seed = (a * seed + c) % m
-                yield seed
-        rng = lcg()
         table = []
         for _ in range(64):
             row = []
             for _ in range(12):
-                row.append(next(rng))
+                row.append(getrandbits(64))
             table.append(row)
         self.ZOBRIST_TABLE = table
         self.ZOBRIST_PIECE_INDEX = piece_to_index
-    def piece_square(self, square, color):
+    def piece_square(self, coord, color):
+        row, col = coord
+        square = (7 - row) * 8 + col
         for piece, bitboard in zip("PNBRQK", self._initial[color]):
             if bitboard & (1 << square):
                 return piece if color == 'white' else piece.lower()
-        return None
+        return " "
     def _square_to_coord(self, square):
         row = 7 - (square // 8)
         col = square % 8
@@ -138,7 +128,7 @@ class Position:
         for square in range(64):
             if not (friendly_board & (1 << square)):
                 continue
-            piece = self.piece_square(square, color)
+            piece = self.piece_square(self._square_to_coord(square), color)
             if piece is None:
                 continue
             if piece.upper() == 'P':
@@ -167,10 +157,8 @@ class Position:
                                 continue
                     moves.append((self._square_to_coord(square), self._square_to_coord(new_square)))
                 if color == 'white' and square == 4:
-                    # Kingside castling: squares 5 and 6 must be empty
                     if self.wc[0] and not (overall & ((1 << 5) | (1 << 6))):
                         moves.append((self._square_to_coord(4), self._square_to_coord(6)))
-                    # Queenside castling: squares 1,2,3 must be empty
                     if self.wc[1] and not (overall & ((1 << 1) | (1 << 2) | (1 << 3))):
                         moves.append((self._square_to_coord(4), self._square_to_coord(2)))
                 elif color == 'black' and square == 60:
@@ -184,42 +172,49 @@ class Position:
         e_x, e_y = end
         start_sq = (7 - s_x) * 8 + s_y
         end_sq   = (7 - e_x) * 8 + e_y
-        try:
-            start_m = 1 << start_sq
-            end_m   = 1 << end_sq
-        except:
+        start_m = 1 << start_sq
+        end_m   = 1 << end_sq
+        put = lambda bb: (bb & ~start_m) | end_m
+        f_piece = self.piece_square(start, "white")
+        l_piece = self.piece_square(start, "black")
+        if f_piece != ' ':
+            piece = f_piece
+        elif l_piece != ' ':
+            piece = l_piece
+        else:
             return False
-        f_piece, l_piece = self.piece_square(start_sq, "white"), self.piece_square(start_sq, "black")
-        if f_piece.isspace(): piece = l_piece
-        if l_piece.isspace(): piece = f_piece
-        if start_sq == 63 and piece.islower(): self.bc = (False, self.bc[1])
-        if start_sq == 56 and piece.islower(): self.bc = (self.bc[0], False)
-        if start_sq == 63 and piece.isupper(): self.bc = (False, self.bc[1])
-        if start_sq == 56 and piece.isupper(): self.bc = (self.bc[0], False)
-        if end_sq == 0 and piece.isupper(): self.wc = (self.wc[0], False)
-        if end_sq == 7 and piece.isupper(): self.wc = (False, self.wc[1])
-        if end_sq == 0 and piece.islower(): self.wc = (self.wc[0], False)
-        if end_sq == 7 and piece.islower(): self.wc = (False, self.wc[1])
+        if start_sq == 63: self.wc = (self.wc[0], False)
+        if start_sq == 56: self.wc = (False, self.wc[1])
+        if end_sq == 7: self.bc = (self.bc[0], False)
+        if end_sq == 0: self.bc = (False, self.bc[1])
         self._history.append((self._board, { 'white': self._initial['white'][:], 'black': self._initial['black'][:] }))
-        moved_color = None
-        for color in ['white', 'black']:
-            for idx, bb in enumerate(self._initial[color]):
-                if bb & start_m:
-                    self._initial[color][idx] = (bb & ~start_m) | end_m
-                    moved_color = color
-                    break
-            if moved_color is not None:
-                break
-        opponent_color = 'black' if moved_color == 'white' else 'white'
-        for idx, bb in enumerate(self._initial[opponent_color]):
+        if piece.upper() == "K":
+            self.wc = (False, False)
+            if abs(end_sq - start_sq) == 2:
+                king_index = piece_to_index['K']
+                self._initial["white"][king_index] = put(self._initial["white"][king_index])
+                if end_sq > start_sq:
+                    rook_start = start_sq + 3
+                    rook_end = start_sq + 1
+                else:
+                    rook_start = start_sq - 4
+                    rook_end = start_sq - 1
+                move_rook = lambda bb: (bb & ~(1 << rook_start)) | (1 << rook_end)
+                self._initial["white"][3] = move_rook(self._initial["white"][3])
+                self.kp = ((start_sq + end_sq) // 2, self.kp[1])
+        index = piece_to_index[piece]
+        self._initial["white"][index] = put(self._initial["white"][index])
+        for idx, bb in enumerate(self._initial["black"]):
             if bb & end_m:
-                self._initial[opponent_color][idx] = bb & ~end_m
+                self._initial["black"][idx] = bb & ~end_m
         self._board = 0
-        for color in ['white', 'black']:
-            for bb in self._initial[color]:
+        for col in ['white', 'black']:
+            for bb in self._initial[col]:
                 self._board |= bb
+        self.rotate()
         return True
     def print_board(self, is_white=True):
+        self.rotate()
         board_array = [[' ' for _ in range(8)] for _ in range(8)]
         for square in range(64):
             row = 7 - (square // 8)
@@ -256,7 +251,7 @@ class Position:
         else:
             print("  h g f e d c b a")
     def undo_move(self):
-        if self._history:
+        if self._history: 
             prev_board, prev_initial = self._history.pop()
             self._board = prev_board
             self._initial = prev_initial
@@ -272,141 +267,73 @@ class Position:
                         piece = pieces[idx]
                         hash_value ^= self.ZOBRIST_TABLE[square][self.ZOBRIST_PIECE_INDEX[piece]]
         return hash_value
-def evaluate_pawn_structure(board):
-    score = 0
-    for color in ['white', 'black']:
-        pawn_positions = []
-        for x in range(8):
-            for y in range(8):
-                piece = board[x][y]
-                if (color == 'white' and piece == 'P') or (color == 'black' and piece == 'p'):
-                    pawn_positions.append((x, y))
-        for pawn in pawn_positions:
-            x, y = pawn
-            files_to_check = []
-            if y > 0:
-                files_to_check.append(y - 1)
-            if y < 7:
-                files_to_check.append(y + 1)
-            isolated = True
-            for fy in files_to_check:
-                for fx in range(8):
-                    if (fx, fy) in pawn_positions:
-                        isolated = False
-                        break
-                if not isolated:
-                    break
-            if isolated:
-                penalty = 15
-                score -= penalty if color == 'white' else -penalty
-        file_counts = {}
-        for pawn in pawn_positions:
-            x, y = pawn
-            file_counts.setdefault(y, []).append(x)
-        for file_pawns in file_counts.values():
-            if len(file_pawns) > 1:
-                penalty = 10 * (len(file_pawns) - 1)
-                score -= penalty if color == 'white' else -penalty
-        for pawn in pawn_positions:
-            x, y = pawn
-            passed = True
-            if color == 'white':
-                for fx in range(x):
-                    if board[fx][y] == 'p':
-                        passed = False
-                        break
+    def is_check(self):
+        king_coord = self._square_to_coord(self.kp)
+        for move in self.genMoves("black"):
+            if move[1] == king_coord:
+                return True
+        return False
+    def is_checkmate(self):
+        if self.is_check() and len(self.genMoves("white")) == 0:
+            return True
+        return False
+    def is_endgame(self):
+        material = 0
+        for color in ['white', 'black']:
+            for idx, bitboard in enumerate(self._initial[color]):
+                material += bin(bitboard).count('1') * piece_values["PNBRQK"[idx]]
+                if material >= 1000:
+                    return False
+        return True
+    def is_draw(self, to_move):
+        if self.genMoves("white") == 0 or self.genMoves("black") == 0:
+            return True
+        for color in ['white', 'black']:
+            if color == "black": self.rotate()
+            for move in self.genMoves(color):
+                total_moves = len(self.genMoves(color))
+                check_move = 0
+                if self.move_piece(move[0], move[1]):
+                    if self.is_check():
+                        check_move += 1
+                    self.undo_move()
+            if color == "black": self.rotate()
+            if check_move == total_moves and to_move == color:
+                return True
             else:
-                for fx in range(x + 1, 8):
-                    if board[fx][y] == 'P':
-                        passed = False
-                        break
-            if passed:
-                advancement = (7 - x) * 10 if color == 'white' else x * 10
-                score += advancement if color == 'white' else -advancement
-    return int(score / 5)
-def get_pst_val(piece, place, color, pst=pst):
+                return False
+    def rotate(self):
+        def rotate_bitboard(bb):
+            rotated = 0
+            for square in range(64):
+                if bb & (1 << square):
+                    rotated |= (1 << (63 - square))
+            return rotated
+        new_initial = {'white': [], 'black': []}
+        for i in range(6):
+            new_initial['white'].append(rotate_bitboard(self._initial['black'][i]))
+            new_initial['black'].append(rotate_bitboard(self._initial['white'][i]))
+        self._initial = new_initial
+        self._board = 0
+        for color in ['white', 'black']:
+            for bb in self._initial[color]:
+                self._board |= bb
+        self.wc, self.bc = self.bc, self.wc
+        new_white_king = 63 - self.kp
+        self.kp = new_white_king
+def pst_val(piece, square):
     piece = piece.upper()
-    piece_table = pst[piece]
-    if color == "Black":
-        piece_table = [i for i in piece_table]
-        piece_table.reverse()
-    return piece_table[place[0]][place[1]]
-def evaluate_king_safety(board):
-    score = 0
-    for color in ['white', 'black']:
-        king_pos = find_king(board, color)
-        if not king_pos:
-            continue
-        x, y = king_pos
-        pawn_shield = 0
-        if not is_endgame(board):
-            if color == 'white':
-                for dx in [-1, 0, 1]:
-                    nx, ny = x - 1, y + dx
-                    if 0 <= nx < 8 and 0 <= ny < 8 and board[nx][ny] == 'P':
-                        pawn_shield += 1
-            else:
-                for dx in [-1, 0, 1]:
-                    nx, ny = x + 1, y + dx
-                    if 0 <= nx < 8 and 0 <= ny < 8 and board[nx][ny] == 'p':
-                        pawn_shield += 1
-            if pawn_shield < 2:
-                penalty = (2 - pawn_shield) ** 20
-                score -= penalty if color == 'white' else -penalty
-    return score
-def evaluate_bishop_pair(board):
-    score = 0
-    for color in ['white', 'black']:
-        bishop_count = sum(
-            1 for x in range(8) for y in range(8)
-            if (board[x][y] == 'B' and color == 'white') or (board[x][y] == 'b' and color == 'black')
-        )
-        if bishop_count >= 2:
-            bonus = 50
-            score += bonus if color == 'white' else -bonus
-    return score
+    if piece not in pst:
+        return 0
+    row, col = square // 8, square % 8
+    return pst[piece][row][col]
 def evaluate(board):
-    white_moves = get_all_moves(board, 'White')
-    black_moves = get_all_moves(board, 'Black')
     score = 0
-    for x in range(8):
-        for y in range(8):
-            piece = board[x][y]
-            if piece == " ":
-                continue
-            moves = generate_piece_moves(board, x, y)
-            value = piece_values[piece.upper()]
-            pst_value = get_pst_val(piece, (x, y), 'White' if piece.isupper() else 'Black')
-            #if piece.lower() == "q" and not is_endgame(board):
-            #    score -= 5
-            if piece.lower() == "k":
-                if piece.isupper():
-                    score += pst_value
-                else:
-                    score -= pst_value
-                continue
-            if piece.isupper():
-                score += value
-                score += pst_value
-                for move in moves:
-                    if move in black_moves and move not in white_moves:
-                        score -= value * 2
-            else:
-                score -= value
-                score -= pst_value
-                for move in moves:
-                    if move in white_moves and move not in black_moves:
-                        score += value * 2
-    #pawn_structure_score = evaluate_pawn_structure(board)
-    #score += pawn_structure_score
-    #king_safety_score = evaluate_king_safety(board)
-    #score += king_safety_score
-    #bishop_pair_score = evaluate_bishop_pair(board)
-    #score += bishop_pair_score
-    mobility_score = (len(white_moves) - len(black_moves)) // 4
-    score += mobility_score
-    if is_checkmate(board, "white"):
-        score = piece_values["K"] - 10 * piece_values["Q"]
-    if is_checkmate(board, "black"):
-        score = piece_values["K"] + 10 * piece_values["Q"]
-    return score
+    for square in range(64):
+        for color in ['white', 'black']:
+            for idx, bitboard in enumerate(board._initial[color]):
+                if bitboard & (1 << square):
+                    piece = "PNBRQK"[idx] if color == 'white' else "pnbrqk"[idx]
+                    score += piece_values[piece]
+                    score += pst_val(piece, square)
+    return
