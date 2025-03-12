@@ -1,7 +1,7 @@
 from random import getrandbits
 piece_values = {"P": 100, "N": 280, "B": 320, "R": 479, "Q": 929, "K": 60000}
-piece_to_index = {'P': 0, 'N': 1, 'B': 2, 'R': 3, 'Q': 4, 'K': 5,
-                  'p': 6, 'n': 7, 'b': 8, 'r': 9, 'q': 10, 'k': 11}
+piece_to_index = {'P': 0, 'N': 1, 'B': 2, 'R': 3, 'Q': 4, 'K': 5,}
+                  #'p': 6, 'n': 7, 'b': 8, 'r': 9, 'q': 10, 'k': 11}
 #TODO: do this for the check:
 #where when no legal move can prevent a situation where the king can be “captured”,
 unicode_pieces = {
@@ -121,7 +121,7 @@ class Position:
     def genMoves(self, color):
         moves = []
         friendly_board = 0
-        for bb in self._initial[color]:
+        for bb in self._initial[color.lower()]:
             friendly_board |= bb
         overall = self._board
         opponent_board = overall & ~friendly_board
@@ -202,7 +202,7 @@ class Position:
                 move_rook = lambda bb: (bb & ~(1 << rook_start)) | (1 << rook_end)
                 self._initial["white"][3] = move_rook(self._initial["white"][3])
                 self.kp = ((start_sq + end_sq) // 2, self.kp[1])
-        index = piece_to_index[piece]
+        index = piece_to_index[piece.upper()]
         self._initial["white"][index] = put(self._initial["white"][index])
         for idx, bb in enumerate(self._initial["black"]):
             if bb & end_m:
