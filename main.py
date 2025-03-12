@@ -85,7 +85,7 @@ def negamax(board, depth, alpha, beta, color, last_move, t_table):
     best_move = None
     total_nodes = 0
     alpha_original = alpha
-    player_color = 'white' if color == 1 else 'Black'
+    player_color = 'white' if color == 1 else 'black'
     if depth >= 3 and not board.is_check(): #and not is_endgame(board):
         #start = time.time()
         score, best_move, nodes = negamax(board, depth - 3, -beta, -beta + 1, -color, last_move, t_table)
@@ -145,7 +145,7 @@ def quiescence_search(board, alpha, beta, color, last_move, t_table, depth=0, ma
     if alpha < stand_pat:
         alpha = stand_pat
     total_nodes = 1
-    player_color = 'white' if color == 1 else 'Black'
+    player_color = 'white' if color == 1 else 'black'
     if not board.is_check(board): #and not is_endgame(board):
         score = stand_pat
         if score >= beta:
@@ -177,9 +177,9 @@ def quiescence_search(board, alpha, beta, color, last_move, t_table, depth=0, ma
             alpha = score
             best_move = move
     return alpha, best_move, total_nodes
-def search(board, t_table, computer_color="Black", depth=max_depth, last_move=None):
+def search(board, t_table, computer_color="black", depth=max_depth, last_move=None):
     best_move = None
-    color = -1 if computer_color == "Black" else 1
+    color = -1 if computer_color == "black" else 1
     start_time = time.time()
     alpha = float('-inf')
     beta = float('inf')
@@ -199,24 +199,21 @@ def search(board, t_table, computer_color="Black", depth=max_depth, last_move=No
             black_rook_moved = True
     return best_move, depth, total_nodes
 def order_moves(board, moves, player_color, last_move=None, depth=0):
-    opponent_color = 'white' if player_color == 'Black' else 'Black'
+    opponent_color = 'white' if player_color == 'black' else 'black'
     move_scores = []
     for move in moves:
         score = 0
-        temp_board = copy.deepcopy(board)
-        piece = board[move[0][0]][move[0][1]]
+        piece = board.piece_square(move[0], player_color)
         piece_val = piece_values[piece.upper()]
-        end_pos = (move[1][0], move[1][1])
-        start_pos = (move[0][0], move[0][1])
-        temp_board[end_pos[0]][end_pos[1]] = piece
-        temp_board[start_pos[0]][start_pos[1]] = " "
-        if player_color == "Black":
-            score += -evaluate(temp_board)
+        board.move_piece(move[0], move[1])
+        if player_color == "black":
+            score += -evaluate(board)
         else:
-            score += evaluate(temp_board)
+            score += evaluate(board)
+        board.undo_move()
         player_squares = board.genMoves(player_color)
         opponent_squares = board.genMoves(opponent_color)
-        if end_pos in opponent_squares and end_pos not in player_squares:
+        if move[1] in opponent_squares and move[1] not in player_squares:
             score -= math.factorial(piece_val) + 10000
         q_value = get_q_value(board, move)
         score += q_value
@@ -255,7 +252,7 @@ def play_chess():
                         print("It's a draw.")
                         save_q_table(q_table)
                         return
-                    player_color = 'Black' if player_color == 'white' else 'white'
+                    player_color = 'black' if player_color == 'white' else 'white'
                 else:
                     print("Invalid move. Try again.")
             else:
@@ -298,7 +295,7 @@ def play_chess():
                 if white_move in openings:
                     computer_move = random.choice(openings[white_move])
                     start_pos, end_pos = parse_move(computer_move)
-                    valid_move, last_move = board.move_piece(start_pos, end_pos)
+                    _ = board.move_piece(start_pos, end_pos)
                     board.print_board()
                     first_open = False
                     continue
@@ -309,27 +306,26 @@ def play_chess():
             ttime = etime - stime
             print(f"time: {ttime} nodes: {nodes} depth: {depth} score: {evaluate(board)}")
             start_pos, end_pos = action
-            valid_move, last_move = board.move_piece(start_pos, end_pos)
-            if valid_move:
-                handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
-                board.print_board()
-                if board.is_checkmate():
-                    print("Checkmate! Black wins!")
-                    save_q_table(q_table)
-                    return
-                if board.is_draw(color for color in ['white', 'black']):
-                    print("Stalemate! It's a draw.")
-                    save_q_table(q_table)
-                    return
-                reward = 0
-                board.rotate()
-                if board.is_check():
-                    reward = 1
-                board.rotate()
-                reward += evaluate(board) * -1
-                next_state = copy.deepcopy(board)
-                update_q_table(state, action, reward, next_state)
-                first_open = False
+            _ = board.move_piece(start_pos, end_pos)
+            handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
+            board.print_board()
+            if board.is_checkmate():
+                print("Checkmate! black wins!")
+                save_q_table(q_table)
+                return
+            if board.is_draw(color for color in ['white', 'black']):
+                print("Stalemate! It's a draw.")
+                save_q_table(q_table)
+                return
+            reward = 0
+            board.rotate()
+            if board.is_check():
+                reward = 1
+            board.rotate()
+            reward += evaluate(board) * -1
+            next_state = copy.deepcopy(board)
+            update_q_table(state, action, reward, next_state)
+            first_open = False
     else:
         print("Invalid choice.")
         play_chess()
@@ -403,7 +399,7 @@ def sim_chess():
             handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
             board.print_board()
             if board.is_checkmate():
-                print("Checkmate! Black wins!")
+                print("Checkmate! black wins!")
                 save_q_table(q_table)
                 return
             if board.is_draw(color for color in ['white', 'black']):
