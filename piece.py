@@ -1,4 +1,6 @@
 from random import getrandbits
+from copy import deepcopy
+from collections import namedtuple
 piece_values = {"P": 100, "N": 280, "B": 320, "R": 479, "Q": 929, "K": 60000}
 piece_to_index = {'P': 0, 'N': 1, 'B': 2, 'R': 3, 'Q': 4, 'K': 5,}
                   #'p': 6, 'n': 7, 'b': 8, 'r': 9, 'q': 10, 'k': 11}
@@ -70,47 +72,30 @@ directions = {
     "Q": (N, E, S, W, N+E, S+E, S+W, N+W),
     "K": (N, E, S, W, N+E, S+E, S+W, N+W)
 }
-
-class Position:
-    def __init__(self):
-        self.kp = 4
-        self.wc = (True, True)
-        self.bc = (True, True)
-        self._initial = {
+initial = {
             'white': [
                 0x000000000000FF00, 
                 0x0000000000000042,
                 0x0000000000000024,
                 0x0000000000000081,
                 0x0000000000000008,
-                0x0000000000000010
+                0x0000000000000010 # The queen, DO NOT CHANGE
+                
             ],
             'black': [
                 0x00FF000000000000, 
                 0x4200000000000000,
                 0x2400000000000000,
                 0x8100000000000000,
-                0x0800000000000000, 
-                0x1000000000000000
+                0x0800000000000000,
+                0x1000000000000000, 
             ]
         }
-        self._history = []
-        self._board = 0
-        for col in self._initial:
-            for bb in self._initial[col]:
-                self._board |= bb
-        table = []
-        for _ in range(64):
-            row = []
-            for _ in range(12):
-                row.append(getrandbits(64))
-            table.append(row)
-        self.ZOBRIST_TABLE = table
-        self.ZOBRIST_PIECE_INDEX = piece_to_index
+class Position(namedtuple("Position", "board score wc bc ep kp")):
     def piece_square(self, coord, color):
         row, col = coord
         square = (7 - row) * 8 + col
-        for piece, bitboard in zip("PNBRQK", self._initial[color]):
+        for piece, bitboard in zip("PNBRQK", self.board[color]):
             if bitboard & (1 << square):
                 return piece if color == 'white' else piece.lower()
         return " "
@@ -118,13 +103,12 @@ class Position:
         row = 7 - (square // 8)
         col = square % 8
         return (row, col)
-    def genMoves(self, color):
+    def genMoves(self, color="white"):
         moves = []
         friendly_board = 0
-        for bb in self._initial[color.lower()]:
+        for bb in self.board[color.lower()]:
             friendly_board |= bb
-        overall = self._board
-        opponent_board = overall & ~friendly_board
+        opponent_board = self.board["black"]
         for square in range(64):
             if not (friendly_board & (1 << square)):
                 continue
@@ -167,7 +151,8 @@ class Position:
                     if self.bc[1] and not (overall & ((1 << 57) | (1 << 58) | (1 << 59))):
                         moves.append((self._square_to_coord(60), self._square_to_coord(58)))
         return moves
-    def move_piece(self, start, end):
+    def move_piece(self, start, end, simulate=False):
+        self.turn = "black" if self.turn == "white" else "white"
         s_x, s_y = start
         e_x, e_y = end
         start_sq = (7 - s_x) * 8 + s_y
@@ -175,24 +160,17 @@ class Position:
         start_m = 1 << start_sq
         end_m   = 1 << end_sq
         put = lambda bb: (bb & ~start_m) | end_m
-        f_piece = self.piece_square(start, "white")
-        l_piece = self.piece_square(start, "black")
-        if f_piece != ' ':
-            piece = f_piece
-        elif l_piece != ' ':
-            piece = l_piece
-        else:
-            return False
+        piece = self.piece_square(start, "white")
         if start_sq == 63: self.wc = (self.wc[0], False)
         if start_sq == 56: self.wc = (False, self.wc[1])
         if end_sq == 7: self.bc = (self.bc[0], False)
         if end_sq == 0: self.bc = (False, self.bc[1])
-        self._history.append((self._board, { 'white': self._initial['white'][:], 'black': self._initial['black'][:] }))
+        self._history.append((self.board, { 'white': self.board['white'][:], 'black': self.board['black'][:] }))
         if piece.upper() == "K":
             self.wc = (False, False)
             if abs(end_sq - start_sq) == 2:
                 king_index = piece_to_index['K']
-                self._initial["white"][king_index] = put(self._initial["white"][king_index])
+                self.board["white"][king_index] = put(self.board["white"][king_index])
                 if end_sq > start_sq:
                     rook_start = start_sq + 3
                     rook_end = start_sq + 1
@@ -200,32 +178,32 @@ class Position:
                     rook_start = start_sq - 4
                     rook_end = start_sq - 1
                 move_rook = lambda bb: (bb & ~(1 << rook_start)) | (1 << rook_end)
-                self._initial["white"][3] = move_rook(self._initial["white"][3])
+                self.board["white"][3] = move_rook(self.board["white"][3])
                 self.kp = ((start_sq + end_sq) // 2, self.kp[1])
         index = piece_to_index[piece.upper()]
-        self._initial["white"][index] = put(self._initial["white"][index])
-        for idx, bb in enumerate(self._initial["black"]):
+        self.board["white"][index] = put(self.board["white"][index])
+        for idx, bb in enumerate(self.board["black"]):
             if bb & end_m:
-                self._initial["black"][idx] = bb & ~end_m
-        self._board = 0
+                self.board["black"][idx] = bb & ~end_m
+        self.board = 0
         for col in ['white', 'black']:
-            for bb in self._initial[col]:
-                self._board |= bb
-        self.rotate()
-        return True
+            for bb in self.board[col]:
+                self.board |= bb
+        if simulate == False: self.rotate()
+        #return Position(self.board, self.score, self.wc, self.bc, self.ep, self.kp, self.turn, self.history + [(self.board, self.initial)], #new_initial)
     def print_board(self, is_white=True):
-        self.rotate()
+        #self.rotate()
         board_array = [[' ' for _ in range(8)] for _ in range(8)]
         for square in range(64):
             row = 7 - (square // 8)
             col = square % 8
             piece = None
-            for p, bb in zip("PNBRQK", self._initial["white"]):
+            for p, bb in zip("PNBRQK", self.board["white"]):
                 if bb & (1 << square):
                     piece = p
                     break
             if piece is None:
-                for p, bb in zip("pnbrqk", self._initial["black"]):
+                for p, bb in zip("pnbrqk", self.board["black"]):
                     if bb & (1 << square):
                         piece = p
                         break
@@ -250,18 +228,19 @@ class Position:
             print("  a b c d e f g h")
         else:
             print("  h g f e d c b a")
+        #self.rotate()
     def undo_move(self):
         if self._history: 
             prev_board, prev_initial = self._history.pop()
-            self._board = prev_board
-            self._initial = prev_initial
+            self.board = prev_board
+            self.board = prev_initial
             return True
         return False
     def hash(self):
         hash_value = 0
         for color in ['white', 'black']:
             pieces = "PNBRQK" if color == 'white' else "pnbrqk"
-            for idx, bitboard in enumerate(self._initial[color]):
+            for idx, bitboard in enumerate(self.board[color]):
                 for square in range(64):
                     if bitboard & (1 << square):
                         piece = pieces[idx]
@@ -280,7 +259,7 @@ class Position:
     def is_endgame(self):
         material = 0
         for color in ['white', 'black']:
-            for idx, bitboard in enumerate(self._initial[color]):
+            for idx, bitboard in enumerate(self.board[color]):
                 material += bin(bitboard).count('1') * piece_values["PNBRQK"[idx]]
                 if material >= 1000:
                     return False
@@ -293,7 +272,7 @@ class Position:
             for move in self.genMoves(color):
                 total_moves = len(self.genMoves(color))
                 check_move = 0
-                if self.move_piece(move[0], move[1]):
+                if self.move_piece(move[0], move[1], True):
                     if self.is_check():
                         check_move += 1
                     self.undo_move()
@@ -309,18 +288,16 @@ class Position:
                 if bb & (1 << square):
                     rotated |= (1 << (63 - square))
             return rotated
-        new_initial = {'white': [], 'black': []}
-        for i in range(6):
-            new_initial['white'].append(rotate_bitboard(self._initial['black'][i]))
-            new_initial['black'].append(rotate_bitboard(self._initial['white'][i]))
-        self._initial = new_initial
-        self._board = 0
-        for color in ['white', 'black']:
-            for bb in self._initial[color]:
-                self._board |= bb
-        self.wc, self.bc = self.bc, self.wc
-        new_white_king = 63 - self.kp
-        self.kp = new_white_king
+        self.board["white"] = [rotate_bitboard(self.board['white'][i]) for i in range(6)]
+        self.board["black"] = [rotate_bitboard(self.board['black'][i]) for i in range(6)]
+        return Position(
+            self.board,
+            -self.score,
+            self.bc,
+            self.wc,
+            (7 - self.ep[0], 7 - self.ep[1]) if self.ep else None,
+            63 - self.kp,
+        )
 def pst_val(piece, square):
     piece = piece.upper()
     if piece not in pst:
