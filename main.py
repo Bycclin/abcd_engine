@@ -222,7 +222,7 @@ def order_moves(board, moves, player_color, last_move=None, depth=0):
     ordered_moves = [move for score, move in move_scores]
     return ordered_moves
 def play_chess():
-    board = Position()
+    board = Position(initial, 0, (True, True), (True, True), (8, 8), 4)
     player_color = 'white'
     last_move = None
     t_table = {}
@@ -235,13 +235,14 @@ def play_chess():
                 save_q_table(q_table)
                 return
             parsed_move = parse_move(move)
+            start_pos, end_pos = parsed_move
             if parsed_move is None:
                 print("Invalid input. Please enter your move in the format 'e2 e4'.")
                 continue
-            if parsed_move not in board.genMoves(player_color):
-                valid_move, last_move = board.move_piece(board, start_pos, end_pos, last_move)
+            if parsed_move in board.genMoves(player_color):
+                valid_move = board.move_piece(start_pos, end_pos)
                 if valid_move:
-                    handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]])
+                    handle_promotion(board, end_pos[0], end_pos[1], board.piece_square(end_pos, player_color))
                     board.rotate()
                     if board.is_checkmate():
                         print(f"Checkmate! {player_color} wins!")
@@ -330,7 +331,7 @@ def play_chess():
         print("Invalid choice.")
         play_chess()
 def sim_chess():
-    board = Position()
+    board = Position(initial, 0, (True, True), (True, True), (8, 8), 4)
     last_move = None
     first_open = True
     hist = []
