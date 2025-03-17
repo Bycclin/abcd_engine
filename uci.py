@@ -95,7 +95,7 @@ def parse_uci_move(move_str):
 version = "abcd 2025(1.5)"
 
 # Initialize history with the initial board state and no last move
-hist = [None, copy.deepcopy(main.initial_board)]
+hist = [None, piece.Position(piece.initial, 0, (True, True), (True, True), (9, 8), 0)]
 debug = False
 
 with ThreadPoolExecutor(max_workers=1) as executor:
