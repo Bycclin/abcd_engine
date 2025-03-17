@@ -72,6 +72,7 @@ directions = {
     "Q": (N, E, S, W, N+E, S+E, S+W, N+W),
     "K": (N, E, S, W, N+E, S+E, S+W, N+W)
 }
+ZOBRIST_TABLE = [[getrandbits(64) for _ in range(12)] for _ in range(64)]
 initial = {
             'white': [
                 0x000000000000FF00, 
@@ -108,7 +109,11 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         friendly_board = 0
         for bb in self.board[color.lower()]:
             friendly_board |= bb
-        opponent_board = self.board["black"]
+        opponent_color = "black" if color.lower() == "white" else "white"
+        opponent_board = 0
+        for bb in self.board[opponent_color]:
+            opponent_board |= bb
+        overall = friendly_board | opponent_board
         for square in range(64):
             if not (friendly_board & (1 << square)):
                 continue
@@ -151,8 +156,8 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                     if self.bc[1] and not (overall & ((1 << 57) | (1 << 58) | (1 << 59))):
                         moves.append((self._square_to_coord(60), self._square_to_coord(58)))
         return moves
-    def move_piece(self, start, end, simulate=False):
-        self.turn = "black" if self.turn == "white" else "white"
+    def move_piece(self, start, end):
+        #self.turn = "black" if self.turn == "white" else "white"
         s_x, s_y = start
         e_x, e_y = end
         start_sq = (7 - s_x) * 8 + s_y
@@ -160,12 +165,12 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         start_m = 1 << start_sq
         end_m   = 1 << end_sq
         put = lambda bb: (bb & ~start_m) | end_m
+        print(self.board)
         piece = self.piece_square(start, "white")
         if start_sq == 63: self.wc = (self.wc[0], False)
         if start_sq == 56: self.wc = (False, self.wc[1])
         if end_sq == 7: self.bc = (self.bc[0], False)
         if end_sq == 0: self.bc = (False, self.bc[1])
-        self._history.append((self.board, { 'white': self.board['white'][:], 'black': self.board['black'][:] }))
         if piece.upper() == "K":
             self.wc = (False, False)
             if abs(end_sq - start_sq) == 2:
@@ -185,12 +190,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         for idx, bb in enumerate(self.board["black"]):
             if bb & end_m:
                 self.board["black"][idx] = bb & ~end_m
-        self.board = 0
-        for col in ['white', 'black']:
-            for bb in self.board[col]:
-                self.board |= bb
-        if simulate == False: self.rotate()
-        #return Position(self.board, self.score, self.wc, self.bc, self.ep, self.kp, self.turn, self.history + [(self.board, self.initial)], #new_initial)
+        return self.rotate()
     def print_board(self, is_white=True):
         #self.rotate()
         board_array = [[' ' for _ in range(8)] for _ in range(8)]
@@ -229,13 +229,36 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         else:
             print("  h g f e d c b a")
         #self.rotate()
-    def undo_move(self):
-        if self._history: 
-            prev_board, prev_initial = self._history.pop()
-            self.board = prev_board
-            self.board = prev_initial
-            return True
-        return False
+    def undo_move(self, start, end, capture):
+        #TODO get rid of this function and rely on TTable
+        s_x, s_y = start
+        e_x, e_y = end
+        start_sq = (7 - s_x) * 8 + s_y
+        end_sq = (7 - e_x) * 8 + e_y
+        moving_piece = self.piece_square(start, "white")
+        moving_index = piece_to_index[moving_piece]
+        for piece in "PNBRQK":
+            idx = piece_to_index[piece]
+            if self.board["white"][idx] & (1 << end_sq):
+                moving_piece = piece
+                moving_index = idx
+                break
+        if moving_piece.upper() == "K" and abs(end_sq - start_sq) == 2:
+            self.board["white"][moving_index] = (self.board["white"][moving_index] & ~(1 << end_sq)) | (1 << start_sq)
+            if end_sq > start_sq:
+                rook_original_sq = start_sq + 3
+                rook_moved_sq = start_sq + 1
+            else:
+                rook_original_sq = start_sq - 4
+                rook_moved_sq = start_sq - 1
+            self.board["white"][3] = (self.board["white"][3] & ~(1 << rook_moved_sq)) | (1 << rook_original_sq)
+            self.kp = start_sq
+        else:
+            self.board["white"][moving_index] = (self.board["white"][moving_index] & ~(1 << end_sq)) | (1 << start_sq)
+        if capture == " ":
+            black_piece_to_index = {'p': 0, 'n': 1, 'b': 2, 'r': 3, 'q': 4, 'k': 5}
+            cap_index = black_piece_to_index[capture]
+            self.board["black"][cap_index] |= (1 << end_sq)
     def hash(self):
         hash_value = 0
         for color in ['white', 'black']:
@@ -244,7 +267,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 for square in range(64):
                     if bitboard & (1 << square):
                         piece = pieces[idx]
-                        hash_value ^= self.ZOBRIST_TABLE[square][self.ZOBRIST_PIECE_INDEX[piece]]
+                        hash_value ^= ZOBRIST_TABLE[square][piece_to_index[piece]]
         return hash_value
     def is_check(self):
         king_coord = self._square_to_coord(self.kp)
@@ -265,18 +288,19 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                     return False
         return True
     def is_draw(self, to_move):
+        #TODO: just rely on TTable
         if self.genMoves("white") == 0 or self.genMoves("black") == 0:
             return True
+        temp_board = deepcopy(self)
         for color in ['white', 'black']:
-            if color == "black": self.rotate()
+            if color == "black": temp_board = temp_board.rotate()
             for move in self.genMoves(color):
-                total_moves = len(self.genMoves(color))
+                total_moves = len(self.genMoves("white"))
                 check_move = 0
-                if self.move_piece(move[0], move[1], True):
-                    if self.is_check():
-                        check_move += 1
-                    self.undo_move()
-            if color == "black": self.rotate()
+                temp_board = temp_board.move_piece(move[0], move[1])
+                if temp_board.is_check():
+                    check_move += 1
+                temp_board.undo_move(move[0], move[1], self.piece_square(move[1], "white"))
             if check_move == total_moves and to_move == color:
                 return True
             else:
@@ -288,10 +312,11 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 if bb & (1 << square):
                     rotated |= (1 << (63 - square))
             return rotated
-        self.board["white"] = [rotate_bitboard(self.board['white'][i]) for i in range(6)]
-        self.board["black"] = [rotate_bitboard(self.board['black'][i]) for i in range(6)]
+        new_board = deepcopy(self.board)
+        new_board["white"] = [rotate_bitboard(self.board['white'][i]) for i in range(6)]
+        new_board["black"] = [rotate_bitboard(self.board['black'][i]) for i in range(6)]
         return Position(
-            self.board,
+            new_board,
             -self.score,
             self.bc,
             self.wc,
