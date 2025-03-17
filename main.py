@@ -240,22 +240,19 @@ def play_chess():
                 print("Invalid input. Please enter your move in the format 'e2 e4'.")
                 continue
             if parsed_move in board.genMoves(player_color):
-                valid_move = board.move_piece(start_pos, end_pos)
-                if valid_move:
-                    handle_promotion(board, end_pos[0], end_pos[1], board.piece_square(end_pos, player_color))
-                    board.rotate()
-                    if board.is_checkmate():
-                        print(f"Checkmate! {player_color} wins!")
-                        save_q_table(q_table)
-                        return
-                    board.rotate()
-                    if board.is_draw(color for color in ['white', 'black']):
-                        print("It's a draw.")
-                        save_q_table(q_table)
-                        return
-                    player_color = 'black' if player_color == 'white' else 'white'
-                else:
-                    print("Invalid move. Try again.")
+                board = board.move_piece(start_pos, end_pos)
+                handle_promotion(board, end_pos[0], end_pos[1], board.piece_square(end_pos, player_color))
+                temp_board = board.rotate()
+                if temp_board.is_checkmate():
+                    print(f"Checkmate! {player_color} wins!")
+                    save_q_table(q_table)
+                    return
+                temp_board = board.rotate()
+                if temp_board.is_draw(color for color in ['white', 'black']):
+                    print("It's a draw.")
+                    save_q_table(q_table)
+                    return
+                player_color = 'black' if player_color == 'white' else 'white'
             else:
                 print("Invalid move. Try again.")
     elif mode in ["computer", "play against the computer"]:
