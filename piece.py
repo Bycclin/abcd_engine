@@ -62,7 +62,6 @@ pst = {
           [  17,  30,  -3, -14,   6,  -1,  40,  18]),
 }
 manhattan_distance = lambda x1, y1, x2, y2: abs(x1 - x2) + abs(y1 - y2)
-#might go back to N, S = 13, -13
 N, E, S, W = 8, 1, -8, -1
 directions = {
     "P": (N, N+N, N+W, N+E),
@@ -104,27 +103,24 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         row = 7 - (square // 8)
         col = square % 8
         return (row, col)
-    def genMoves(self, color="white"):
+    def genMoves(self):
         moves = []
         friendly_board = 0
-        for bb in self.board[color.lower()]:
+        for bb in self.board["white"]:
             friendly_board |= bb
-        opponent_color = "black" if color.lower() == "white" else "white"
         opponent_board = 0
-        for bb in self.board[opponent_color]:
+        for bb in self.board["black"]:
             opponent_board |= bb
         overall = friendly_board | opponent_board
         for square in range(64):
             if not (friendly_board & (1 << square)):
                 continue
-            piece = self.piece_square(self._square_to_coord(square), color)
-            if piece is None:
+            piece = self.piece_square(self._square_to_coord(square), "white")
+            if piece == " ":
                 continue
             if piece.upper() == 'P':
                 for direction in directions[piece.upper()]:
                     adj_direction = direction
-                    if piece.upper() == 'P' and color == 'black':
-                        adj_direction = -direction
                     new_square = square + adj_direction
                     if new_square < 0 or new_square >= 64:
                         continue
@@ -134,10 +130,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                     if friendly_board & (1 << new_square):
                         continue
                     if piece.upper() == 'P':
-                        if color == 'white':
-                            forward, diag_moves = 8, [7, 9]
-                        else:
-                            forward, diag_moves = -8, [-7, -9]
+                        forward, diag_moves = 8, [7, 9]
                         if adj_direction == forward:
                             if overall & (1 << new_square):
                                 continue
@@ -145,16 +138,11 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                             if not (opponent_board & (1 << new_square)):
                                 continue
                     moves.append((self._square_to_coord(square), self._square_to_coord(new_square)))
-                if color == 'white' and square == 4:
+                if square == 4:
                     if self.wc[0] and not (overall & ((1 << 5) | (1 << 6))):
                         moves.append((self._square_to_coord(4), self._square_to_coord(6)))
                     if self.wc[1] and not (overall & ((1 << 1) | (1 << 2) | (1 << 3))):
                         moves.append((self._square_to_coord(4), self._square_to_coord(2)))
-                elif color == 'black' and square == 60:
-                    if self.bc[0] and not (overall & ((1 << 61) | (1 << 62))):
-                        moves.append((self._square_to_coord(60), self._square_to_coord(62)))
-                    if self.bc[1] and not (overall & ((1 << 57) | (1 << 58) | (1 << 59))):
-                        moves.append((self._square_to_coord(60), self._square_to_coord(58)))
         return moves
     def move_piece(self, start, end):
         #self.turn = "black" if self.turn == "white" else "white"
@@ -165,7 +153,6 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         start_m = 1 << start_sq
         end_m   = 1 << end_sq
         put = lambda bb: (bb & ~start_m) | end_m
-        print(self.board)
         piece = self.piece_square(start, "white")
         if start_sq == 63: self.wc = (self.wc[0], False)
         if start_sq == 56: self.wc = (False, self.wc[1])
@@ -192,23 +179,17 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 self.board["black"][idx] = bb & ~end_m
         return self.rotate()
     def print_board(self, is_white=True):
-        #self.rotate()
+        temp_board = self.rotate()
         board_array = [[' ' for _ in range(8)] for _ in range(8)]
         for square in range(64):
-            row = 7 - (square // 8)
-            col = square % 8
+            row, col = 7 - (square // 8), square % 8
             piece = None
-            for p, bb in zip("PNBRQK", self.board["white"]):
-                if bb & (1 << square):
-                    piece = p
-                    break
+            for p, bb in zip("PNBRQK", temp_board["white"]):
+                if bb & (1 << square): piece = p; break
             if piece is None:
-                for p, bb in zip("pnbrqk", self.board["black"]):
-                    if bb & (1 << square):
-                        piece = p
-                        break
-            if piece is None:
-                piece = ' '
+                for p, bb in zip("pnbrqk", temp_board["black"]):
+                    if bb & (1 << square): piece = p; break
+            if piece is None: piece = ' '
             board_array[row][col] = piece
         if is_white:
             print("  a b c d e f g h")
@@ -228,14 +209,13 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             print("  a b c d e f g h")
         else:
             print("  h g f e d c b a")
-        #self.rotate()
     def undo_move(self, start, end, capture):
         #TODO get rid of this function and rely on TTable
         s_x, s_y = start
         e_x, e_y = end
         start_sq = (7 - s_x) * 8 + s_y
         end_sq = (7 - e_x) * 8 + e_y
-        moving_piece = self.piece_square(start, "white")
+        moving_piece = self.piece_square(end, "white")
         moving_index = piece_to_index[moving_piece]
         for piece in "PNBRQK":
             idx = piece_to_index[piece]
@@ -255,7 +235,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             self.kp = start_sq
         else:
             self.board["white"][moving_index] = (self.board["white"][moving_index] & ~(1 << end_sq)) | (1 << start_sq)
-        if capture == " ":
+        if capture != " ":
             black_piece_to_index = {'p': 0, 'n': 1, 'b': 2, 'r': 3, 'q': 4, 'k': 5}
             cap_index = black_piece_to_index[capture]
             self.board["black"][cap_index] |= (1 << end_sq)
@@ -271,12 +251,13 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         return hash_value
     def is_check(self):
         king_coord = self._square_to_coord(self.kp)
-        for move in self.genMoves("black"):
+        temp_board = self.rotate()
+        for move in temp_board.genMoves():
             if move[1] == king_coord:
                 return True
         return False
     def is_checkmate(self):
-        if self.is_check() and len(self.genMoves("white")) == 0:
+        if self.is_check() and len(self.genMoves()) == 0:
             return True
         return False
     def is_endgame(self):
@@ -287,24 +268,31 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 if material >= 1000:
                     return False
         return True
+    def material_count(self, color):
+        counts = {'K': 0, 'N': 0, 'B': 0}
+        for idx, bb in enumerate(self.board[color]):
+            piece = "PNBRQK"[idx]
+            count = bin(bb).count('1')
+            if piece in counts:
+                counts[piece] += count
+            elif count > 0:
+                return None
+        return counts
     def is_draw(self, to_move):
         #TODO: just rely on TTable
-        if self.genMoves("white") == 0 or self.genMoves("black") == 0:
+        if len(self.genMoves()) == 0 and not self.is_check():
             return True
-        temp_board = deepcopy(self)
-        for color in ['white', 'black']:
-            if color == "black": temp_board = temp_board.rotate()
-            for move in self.genMoves(color):
-                total_moves = len(self.genMoves("white"))
-                check_move = 0
-                temp_board = temp_board.move_piece(move[0], move[1])
-                if temp_board.is_check():
-                    check_move += 1
-                temp_board.undo_move(move[0], move[1], self.piece_square(move[1], "white"))
-            if check_move == total_moves and to_move == color:
+        white_counts = self.material_count('white')
+        black_counts = self.material_count('black')
+        if white_counts is not None and black_counts is not None:
+            pieces = [white_counts, black_counts]
+            total_knights = sum(p['N'] for p in pieces)
+            total_bishops = sum(p['B'] for p in pieces)
+            if total_knights == 0 and total_bishops == 0:
                 return True
-            else:
-                return False
+            if (total_bishops == 1 and total_knights == 0) or (total_bishops == 0 and total_knights == 1):
+                return True
+        return False
     def rotate(self):
         def rotate_bitboard(bb):
             rotated = 0
@@ -313,8 +301,8 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                     rotated |= (1 << (63 - square))
             return rotated
         new_board = deepcopy(self.board)
-        new_board["white"] = [rotate_bitboard(self.board['white'][i]) for i in range(6)]
-        new_board["black"] = [rotate_bitboard(self.board['black'][i]) for i in range(6)]
+        new_board["white"] = [rotate_bitboard(self.board['black'][i]) for i in range(6)]
+        new_board["black"] = [rotate_bitboard(self.board['white'][i]) for i in range(6)]
         return Position(
             new_board,
             -self.score,
