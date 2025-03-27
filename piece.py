@@ -184,10 +184,10 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         for square in range(64):
             row, col = 7 - (square // 8), square % 8
             piece = None
-            for p, bb in zip("PNBRQK", temp_board["white"]):
+            for p, bb in zip("PNBRQK", temp_board.board["white"]):
                 if bb & (1 << square): piece = p; break
             if piece is None:
-                for p, bb in zip("pnbrqk", temp_board["black"]):
+                for p, bb in zip("pnbrqk", temp_board.board["black"]):
                     if bb & (1 << square): piece = p; break
             if piece is None: piece = ' '
             board_array[row][col] = piece
