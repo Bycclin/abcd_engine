@@ -239,7 +239,7 @@ def play_chess():
             if parsed_move is None:
                 print("Invalid input. Please enter your move in the format 'e2 e4'.")
                 continue
-            if parsed_move in board.genMoves(player_color):
+            if parsed_move in board.genMoves():
                 board = board.move_piece(start_pos, end_pos)
                 handle_promotion(board, end_pos[0], end_pos[1], board.piece_square(end_pos, player_color))
                 temp_board = board.rotate()
