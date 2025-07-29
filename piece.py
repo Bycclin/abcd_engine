@@ -1,6 +1,6 @@
 from random import getrandbits
-from copy import deepcopy
 from collections import namedtuple
+from itertools import count
 piece_values = {"P": 100, "N": 280, "B": 320, "R": 479, "Q": 929, "K": 60000}
 piece_to_index = {'P': 0, 'N': 1, 'B': 2, 'R': 3, 'Q': 4, 'K': 5,}
                   #'p': 6, 'n': 7, 'b': 8, 'r': 9, 'q': 10, 'k': 11}
@@ -74,16 +74,19 @@ directions = {
 ZOBRIST_TABLE = [[getrandbits(64) for _ in range(12)] for _ in range(64)]
 initial = {
             'white': [
-                0x000000000000FF00, 
+                #0x000000000000FF00,
+                65280,
                 0x0000000000000042,
                 0x0000000000000024,
                 0x0000000000000081,
                 0x0000000000000008,
-                0x0000000000000010 # The queen, DO NOT CHANGE
+                #0x0000000000000010,
+                16,
                 
             ],
             'black': [
-                0x00FF000000000000, 
+                #0x00FF000000000000,
+                71776119061217280,
                 0x4200000000000000,
                 0x2400000000000000,
                 0x8100000000000000,
@@ -93,18 +96,11 @@ initial = {
         }
 class Position(namedtuple("Position", "board score wc bc ep kp")):
     def piece_square(self, coord, color):
-        row, col = coord
-        square = (7 - row) * 8 + col
         for piece, bitboard in zip("PNBRQK", self.board[color]):
-            if bitboard & (1 << square):
+            if bitboard & (1 << coord):
                 return piece if color == 'white' else piece.lower()
         return " "
-    def _square_to_coord(self, square):
-        row = 7 - (square // 8)
-        col = square % 8
-        return (row, col)
     def genMoves(self):
-        moves = []
         friendly_board = 0
         for bb in self.board["white"]:
             friendly_board |= bb
@@ -113,108 +109,125 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             opponent_board |= bb
         overall = friendly_board | opponent_board
         for square in range(64):
-            if not (friendly_board & (1 << square)):
-                continue
-            piece = self.piece_square(self._square_to_coord(square), "white")
+            piece = self.piece_square(square, "white")
             if piece == " ":
                 continue
-            if piece.upper() == 'P':
-                for direction in directions[piece.upper()]:
-                    adj_direction = direction
-                    new_square = square + adj_direction
-                    if new_square < 0 or new_square >= 64:
-                        continue
-                    old_file, new_file = square % 8, new_square % 8
-                    if abs(new_file - old_file) > 2:
-                        continue
-                    if friendly_board & (1 << new_square):
-                        continue
-                    if piece.upper() == 'P':
+            for d in directions[piece]:
+                for o in count(square + d, d):#loop through the dir "rays"
+                    if o < 0 or o > 63:# stay within board
+                        break
+                    if piece.upper() in "BQ":#stop BQ wrap
+                        if abs((o % 8) - ((o - d) % 8)) > 1:
+                            break
+                    if piece.upper() in 'N':# prevent N wrap
+                        old_rank, old_file = divmod(square, 8)
+                        new_rank, new_file = divmod(o, 8)
+                        dr = abs(new_rank - old_rank)
+                        df = abs(new_file - old_file)
+                        if not ((dr == 2 and df == 1) or (dr == 1 and df == 2)):
+                            break
+                    if self.piece_square(o, "white").isupper():# stay off friendly pieces
+                        break
+                    if piece.upper() == 'P':# pawn‐specific legality
+                        old_file, new_file = square % 8, o % 8
+                        if abs(new_file - old_file) > 2:
+                            break
+                        if friendly_board & (1 << o):
+                            break
                         forward, diag_moves = 8, [7, 9]
-                        if adj_direction == forward:
-                            if overall & (1 << new_square):
-                                continue
-                        elif adj_direction in diag_moves:
-                            if not (opponent_board & (1 << new_square)):
-                                continue
-                    moves.append((self._square_to_coord(square), self._square_to_coord(new_square)))
-                if square == 4:
-                    if self.wc[0] and not (overall & ((1 << 5) | (1 << 6))):
-                        moves.append((self._square_to_coord(4), self._square_to_coord(6)))
-                    if self.wc[1] and not (overall & ((1 << 1) | (1 << 2) | (1 << 3))):
-                        moves.append((self._square_to_coord(4), self._square_to_coord(2)))
-        return moves
-    def move_piece(self, start, end):
-        #self.turn = "black" if self.turn == "white" else "white"
-        s_x, s_y = start
-        e_x, e_y = end
-        start_sq = (7 - s_x) * 8 + s_y
-        end_sq   = (7 - e_x) * 8 + e_y
-        start_m = 1 << start_sq
-        end_m   = 1 << end_sq
+                        if d == forward:
+                            if overall & (1 << o):
+                                break
+                        elif d in diag_moves:
+                            if not (opponent_board & (1 << o)):
+                                break
+                        if 0 <= o <= 7:
+                            for prom in "NBRQ":
+                                yield (square, o, prom)
+                    yield (square, o, "")#move it
+                    if piece in "PNK" or self.piece_square(o, "black") != " ":
+                        break
+                    if square == 4:# castling
+                        if self.wc[0] and not (overall & ((1 << 5) | (1 << 6))):
+                            yield (4, 6, "")
+                        if self.wc[1] and not (overall & ((1 << 1) | (1 << 2) | (1 << 3))):
+                            yield (4, 2, "")
+    def move_piece(self, move):
+        start, end = move[0], move[1]#TODO: promotion
+        start_m = 1 << start
+        end_m = 1 << end
+        board = self.board
+        wc, bc, ep, kp = self.wc, self.bc, 0, 0
         put = lambda bb: (bb & ~start_m) | end_m
         piece = self.piece_square(start, "white")
-        if start_sq == 63: self.wc = (self.wc[0], False)
-        if start_sq == 56: self.wc = (False, self.wc[1])
-        if end_sq == 7: self.bc = (self.bc[0], False)
-        if end_sq == 0: self.bc = (False, self.bc[1])
+        if start == 63: wc = (self.wc[0], False)
+        if start == 56: wc = (False, self.wc[1])
+        if end == 7: bc = (self.bc[0], False)
+        if end == 0: bc = (False, self.bc[1])
         if piece.upper() == "K":
-            self.wc = (False, False)
-            if abs(end_sq - start_sq) == 2:
+            wc = (False, False)
+            if abs(end - start) == 2:
                 king_index = piece_to_index['K']
                 self.board["white"][king_index] = put(self.board["white"][king_index])
-                if end_sq > start_sq:
-                    rook_start = start_sq + 3
-                    rook_end = start_sq + 1
+                if end > start:
+                    rook_start = start + 3
+                    rook_end = start + 1
                 else:
-                    rook_start = start_sq - 4
-                    rook_end = start_sq - 1
+                    rook_start = start - 4
+                    rook_end = start - 1
                 move_rook = lambda bb: (bb & ~(1 << rook_start)) | (1 << rook_end)
-                self.board["white"][3] = move_rook(self.board["white"][3])
-                self.kp = ((start_sq + end_sq) // 2, self.kp[1])
+                board["white"][3] = move_rook(self.board["white"][3])
+                kp = ((start + end) // 2, self.kp[1])
         index = piece_to_index[piece.upper()]
-        self.board["white"][index] = put(self.board["white"][index])
+        board["white"][index] = put(self.board["white"][index])
         for idx, bb in enumerate(self.board["black"]):
             if bb & end_m:
-                self.board["black"][idx] = bb & ~end_m
-        return self.rotate()
+                board["black"][idx] = bb & ~end_m
+        return Position(board, self.score, wc, bc, ep, kp).rotate()
     def print_board(self, is_white=True):
-        temp_board = self.rotate()
         board_array = [[' ' for _ in range(8)] for _ in range(8)]
-        for square in range(64):
-            row, col = 7 - (square // 8), square % 8
-            piece = None
-            for p, bb in zip("PNBRQK", temp_board.board["white"]):
-                if bb & (1 << square): piece = p; break
-            if piece is None:
-                for p, bb in zip("pnbrqk", temp_board.board["black"]):
-                    if bb & (1 << square): piece = p; break
-            if piece is None: piece = ' '
-            board_array[row][col] = piece
-        if is_white:
-            print("  a b c d e f g h")
-        else:
-            print("  h g f e d c b a")
-        for row in range(8):
-            rank_label = 8 - row
-            print(str(rank_label), end=" ")
-            if is_white:
-                for col in range(8):
-                    print(unicode_pieces[board_array[row][col]], end=" ")
-            else:
-                for col in range(7, -1, -1):
-                    print(unicode_pieces[board_array[row][col]], end=" ")
-            print(str(rank_label))
-        if is_white:
-            print("  a b c d e f g h")
-        else:
-            print("  h g f e d c b a")
+        for square_idx_a1_oriented in range(64):
+            rank_idx_board_array = square_idx_a1_oriented // 8 
+            file_idx_board_array = square_idx_a1_oriented % 8  
+            row, col = rank_idx_board_array, file_idx_board_array
+            determined_char_for_unicode = ' ' # Default to empty
+            for p_base_idx, bb in enumerate(self.board["white"]):
+                p_base = "PNBRQK"[p_base_idx]
+                if bb & (1 << square_idx_a1_oriented):
+                    determined_char_for_unicode = p_base.upper() if is_white else p_base.lower()
+                    break
+            if determined_char_for_unicode == ' ':
+                for p_base_idx, bb in enumerate(self.board["black"]):
+                    p_base = "PNBRQK"[p_base_idx]
+                    if bb & (1 << square_idx_a1_oriented):
+                        determined_char_for_unicode = p_base.lower() if is_white else p_base.upper()
+                        break
+            board_array[row][col] = unicode_pieces[determined_char_for_unicode]
+        if is_white: # White's perspective (White at bottom)
+            files_header = "  a b c d e f g h"
+            print(files_header)
+            for r_array_idx in range(7, -1, -1): # Iterate from board_array[7] down to board_array[0]
+                rank_label = r_array_idx + 1 # Rank 8 for board_array[7], Rank 1 for board_array[0]
+                print(f"{rank_label} ", end="")
+                for c_array_idx in range(8): # Iterate files a to h
+                    print(board_array[r_array_idx][c_array_idx], end=" ")
+                print(f" {rank_label}") # Added space for alignment
+            print(files_header)
+        else: # Black's perspective (Black at bottom)
+            files_header = "  h g f e d c b a"
+            h = 0
+            print(files_header)
+            for r_array_idx in range(7, -1, -1): # Iterate from board_array[7] down to board_array[0]
+                h += 1
+                rank_label = h #reverse the rank numbers
+                print(f"{rank_label} ", end="")
+                for c_array_idx in range(7, -1, -1): # Iterate files h down to a
+                    print(board_array[r_array_idx][c_array_idx], end=" ")
+                print(f" {rank_label}") # Added space for alignment
+            print(files_header)
     def undo_move(self, start, end, capture):
-        #TODO get rid of this function and rely on TTable
-        s_x, s_y = start
-        e_x, e_y = end
-        start_sq = (7 - s_x) * 8 + s_y
-        end_sq = (7 - e_x) * 8 + e_y
+        start_sq = start #TODO get rid of this function and rely on TTable
+        end_sq = end
         moving_piece = self.piece_square(end, "white")
         moving_index = piece_to_index[moving_piece]
         for piece in "PNBRQK":
@@ -250,14 +263,13 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                         hash_value ^= ZOBRIST_TABLE[square][piece_to_index[piece]]
         return hash_value
     def is_check(self):
-        king_coord = self._square_to_coord(self.kp)
         temp_board = self.rotate()
         for move in temp_board.genMoves():
-            if move[1] == king_coord:
+            if move[1] == self.kp:
                 return True
         return False
     def is_checkmate(self):
-        if self.is_check() and len(self.genMoves()) == 0:
+        if self.is_check() and len(list(self.genMoves())) == 0:
             return True
         return False
     def is_endgame(self):
@@ -278,9 +290,8 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             elif count > 0:
                 return None
         return counts
-    def is_draw(self, to_move):
-        #TODO: just rely on TTable
-        if len(self.genMoves()) == 0 and not self.is_check():
+    def is_draw(self):
+        if len(list(self.genMoves())) == 0 and not self.is_check():#TODO: just rely on TTable
             return True
         white_counts = self.material_count('white')
         black_counts = self.material_count('black')
@@ -294,22 +305,26 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 return True
         return False
     def rotate(self):
-        def rotate_bitboard(bb):
-            rotated = 0
-            for square in range(64):
-                if bb & (1 << square):
-                    rotated |= (1 << (63 - square))
-            return rotated
-        new_board = deepcopy(self.board)
-        new_board["white"] = [rotate_bitboard(self.board['black'][i]) for i in range(6)]
-        new_board["black"] = [rotate_bitboard(self.board['white'][i]) for i in range(6)]
+        def flip_vertical(bb):
+            return ((bb & 0x00000000000000FF) << 56) | \
+                   ((bb & 0x000000000000FF00) << 40) | \
+                   ((bb & 0x0000000000FF0000) << 24) | \
+                   ((bb & 0x00000000FF000000) << 8)  | \
+                   ((bb & 0x000000FF00000000) >> 8)  | \
+                   ((bb & 0x0000FF0000000000) >> 24) | \
+                   ((bb & 0x00FF000000000000) >> 40) | \
+                   ((bb & 0xFF00000000000000) >> 56)
+        new_board = {
+            "white": [flip_vertical(bb) for bb in self.board["black"]],
+            "black": [flip_vertical(bb) for bb in self.board["white"]]
+        }
         return Position(
             new_board,
             -self.score,
             self.bc,
             self.wc,
-            (7 - self.ep[0], 7 - self.ep[1]) if self.ep else None,
-            63 - self.kp,
+            63 - self.ep if self.ep is not None else None,
+            63 - self.kp if self.kp is not None else None,
         )
 def pst_val(piece, square):
     piece = piece.upper()
