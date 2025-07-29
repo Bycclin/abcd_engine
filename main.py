@@ -39,29 +39,45 @@ except FileNotFoundError:
 learning_rate = 0.1
 discount_factor = 0.9
 exploration_rate = 0.2
-def parse_move(move):
-    move = move.replace(',', '')
-    parts = move.split()
-    if len(parts) != 2 or not all(len(part) == 2 for part in parts):
+def parse_move(uci_move, invert=False):
+    parts = uci_move.split()
+    if len(parts) != 2:
         return None
-    col_map = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
-    try:
-        start_col, start_row = col_map[parts[0][0]], int(parts[0][1]) - 1
-        end_col, end_row = col_map[parts[1][0]], int(parts[1][1]) - 1
-        return ((7 - start_row, start_col), (7 - end_row, end_col))
-    except (KeyError, ValueError):
-        return None
-def handle_promotion(board, x, y, piece, computer_promotion=False):
-    if (piece == 'P' and x == 0) or (piece == 'p' and x == 7):
-        if not computer_promotion:
-            while True:
-                promotion = input("Promote to (q/r/b/n): ").lower()
-                if promotion in ['q', 'r', 'b', 'n']:
-                    break
-                print("Invalid choice. Choose q, r, b, or n.")
-            board[x][y] = promotion.upper() if piece.isupper() else promotion
+    indices = []
+    for square_str in parts:
+        if len(square_str) != 2:
+            return None
+        file_char, rank_char = square_str[0].lower(), square_str[1]
+        if file_char < 'a' or file_char > 'h' or rank_char < '1' or rank_char > '8':
+            return None
+        f_idx = ord(file_char) - ord('a')
+        r_idx_input_perspective = int(rank_char) - 1
+        final_r_idx = 0
+        if invert:
+            final_r_idx = 7 - r_idx_input_perspective
         else:
-            board[x][y] = "Q" if piece.isupper() else "q"
+            final_r_idx = r_idx_input_perspective
+        indices.append(f_idx + 8 * final_r_idx) # Corrected for a1=0 mapping
+    return (indices[0], indices[1], "")
+def handle_promotion(board, parsed):
+    end_sq = parsed[1]
+    moving_piece = board.piece_square(parsed[0], 'black').upper()
+    is_promotion = (moving_piece == 'P' and (56 <= end_sq <= 63))
+    if is_promotion:
+        while True:
+            choice = input("Promote pawn to (q)ueen, (r)ook, k(n)ight, or (b)ishop: ").strip().lower()
+            if choice in ['q', 'r', 'n', 'b']:
+                promoted_piece = choice.upper()
+                break
+            else:
+                print("Invalid choice.")
+        new_bitboards = copy.deepcopy(board.board)
+        pawn_index = piece_to_index['P']
+        promo_index = piece_to_index[promoted_piece]
+        new_bitboards['white'][pawn_index] &= ~(1 << end_sq)
+        new_bitboards['white'][promo_index] |= (1 << end_sq)
+        return Position(new_bitboards, board.score, board.wc, board.bc, board.ep, board.kp)
+    return board
 def save_q_table(q_table):
     with open("data.dat", "wb") as file:
         pickle.dump(q_table, file)
@@ -70,7 +86,6 @@ def get_q_value(state, action):
     return q_table.get((state_tuple, action), 0)
 def update_q_table(state, action, reward, next_state):
     state_tuple = tuple(tuple(row) for row in state)
-    next_state_tuple = tuple(tuple(row) for row in next_state)
     current_q = get_q_value(state, action)
     next_q_values = [get_q_value(next_state, a) for a in next_state.genMoves("white")]
     max_next_q = max(next_q_values, default=0)
@@ -84,7 +99,7 @@ def negamax(board, depth, alpha, beta, color, last_move, t_table):
         return values
     best_move = None
     total_nodes = 0
-    alpha_original = alpha
+    #alpha_original = alpha
     player_color = 'white' if color == 1 else 'black'
     if depth >= 3 and not board.is_check(): #and not is_endgame(board):
         #start = time.time()
@@ -180,23 +195,10 @@ def quiescence_search(board, alpha, beta, color, last_move, t_table, depth=0, ma
 def search(board, t_table, computer_color="black", depth=max_depth, last_move=None):
     best_move = None
     color = -1 if computer_color == "black" else 1
-    start_time = time.time()
+    #start_time = time.time()
     alpha = float('-inf')
     beta = float('inf')
-    move = None
-    eval_score, best_move, total_nodes = negamax(board, depth, alpha, beta, color, last_move, t_table)
-    # Castling stuff
-    piece = board[best_move[0][0]][best_move[0][1]]
-    if piece.isupper():
-        if piece == "K":
-            white_king_moved = True
-        elif piece == "R":
-            white_rook_moved = True
-    else:
-        if piece == "k":
-            black_king_moved = True
-        elif piece == "r":
-            black_rook_moved = True
+    _, best_move, total_nodes = negamax(board, depth, alpha, beta, color, last_move, t_table)
     return best_move, depth, total_nodes
 def order_moves(board, moves, player_color, last_move=None, depth=0):
     opponent_color = 'white' if player_color == 'black' else 'black'
@@ -222,107 +224,95 @@ def order_moves(board, moves, player_color, last_move=None, depth=0):
     ordered_moves = [move for score, move in move_scores]
     return ordered_moves
 def play_chess():
-    board = Position(initial, 0, (True, True), (True, True), (8, 8), 4)
+    board = Position(initial, 0, (True, True), (True, True), 9, 4)
     player_color = 'white'
-    last_move = None
     t_table = {}
     mode = input("Do you want to play against a person or the computer? ").strip().lower()
     if mode in ["person", "play against a person"]:
         while True:
-            board.print_board()
-            move = input(f"{player_color}'s turn. Enter your move (e.g., e2 e4): ").strip()
-            if move.lower() == 'quit':
+            board.print_board((player_color=='white'))
+            mv_str = input(f"{player_color}'s turn. Enter your move (e.g., e2 e4): ").strip()
+            if mv_str.lower() == 'quit':
                 save_q_table(q_table)
                 return
-            parsed_move = parse_move(move)
-            start_pos, end_pos = parsed_move
-            if parsed_move is None:
-                print("Invalid input. Please enter your move in the format 'e2 e4'.")
+            parsed = parse_move(mv_str, (player_color=='black'))
+            if not parsed:
+                print("Invalid input. Use format 'e2 e4'.")
                 continue
-            if parsed_move in board.genMoves():
-                board = board.move_piece(start_pos, end_pos)
-                handle_promotion(board, end_pos[0], end_pos[1], board.piece_square(end_pos, player_color))
-                temp_board = board.rotate()
-                if temp_board.is_checkmate():
+            legal = list(board.genMoves())
+            if parsed in legal:
+                board = board.move_piece(parsed)
+                board = handle_promotion(board, parsed)
+                temp = board.rotate()
+                if temp.is_checkmate():
+                    board.print_board(is_white=(player_color=='white'))
                     print(f"Checkmate! {player_color} wins!")
                     save_q_table(q_table)
                     return
-                temp_board = board.rotate()
-                if temp_board.is_draw(color for color in ['white', 'black']):
+                if temp.is_draw():
+                    board.print_board(is_white=(player_color=='white'))
                     print("It's a draw.")
                     save_q_table(q_table)
                     return
-                player_color = 'black' if player_color == 'white' else 'white'
+                player_color = 'black' if player_color=='white' else 'white'
             else:
                 print("Invalid move. Try again.")
     elif mode in ["computer", "play against the computer"]:
         board.print_board()
         first_open = True
         while True:
-            move_valid = False
-            while not move_valid:
-                move = input("white's move (e.g., e2 e4): ").strip()
-                if move.lower() == 'exit':
+            # --- WHITE (human) ---
+            mv_valid = False
+            while not mv_valid:
+                mv_str = input("white's move (e.g., e2 e4): ").strip()
+                if mv_str.lower() == 'exit':
                     save_q_table(q_table)
                     return
-                parsed_move = parse_move(move)
-                last_move = parsed_move
-                start_pos, end_pos = parsed_move
-                if parsed_move is None:
-                    print("Invalid input, please enter a move in the correct format (e.g., e2 e4).")
+                parsed = parse_move(mv_str, invert=False)
+                if not parsed:
+                    print("Invalid input. Use format 'e2 e4'.")
                     continue
-                move_result = move not in board.genMoves("white")
-                if move_result:
-                    _ = board.move_piece(parsed_move[0], parsed_move[1])
-                    handle_promotion(board, end_pos[0], end_pos[1], board.piece_square(end_pos, "white"))
+                if parsed in board.genMoves():
+                    board = board.move_piece(*parsed)
+                    handle_promotion(board, parsed[1], board.piece_square(parsed[1], 'white'))
                     board.print_board()
-                    board.rotate()
-                    if board.is_checkmate():
-                        print("Checkmate! white wins!")
-                        save_q_table(q_table)
-                        return
-                    board.rotate()
-                    if board.is_draw(color for color in ['white', 'black']):
-                        print("Stalemate! It's a draw.")
-                        save_q_table(q_table)
-                    move_valid = True
+                    mv_valid = True
+                    last = parsed
                 else:
                     print("Invalid move, try again.")
             if first_open:
-                white_move = ' '.join([f'{chr(start_pos[1] + 97)}{8 - start_pos[0]}' for start_pos in last_move])
-                if white_move in openings:
-                    computer_move = random.choice(openings[white_move])
-                    start_pos, end_pos = parse_move(computer_move)
-                    _ = board.move_piece(start_pos, end_pos)
+                frm = f"{chr(last[0]%8+97)}{last[0]//8+1}"
+                to  = f"{chr(last[1]%8+97)}{last[1]//8+1}"
+                key = f"{frm} {to}"
+                if key in openings:
+                    comp = random.choice(openings[key])
+                    sp, ep = parse_move(comp)
+                    board = board.move_piece(sp, ep)
                     board.print_board()
                     first_open = False
                     continue
+            # --- BLACK (computer) ---
             state = copy.deepcopy(board)
-            stime = time.time()
-            action, depth, nodes = search(state, t_table)
-            etime = time.time()
-            ttime = etime - stime
-            print(f"time: {ttime} nodes: {nodes} depth: {depth} score: {evaluate(board)}")
-            start_pos, end_pos = action
-            _ = board.move_piece(start_pos, end_pos)
-            handle_promotion(board, end_pos[0], end_pos[1], board[end_pos[0]][end_pos[1]], True)
+            sp, ep, = *search(state, t_table, computer_color="black"), 
+            move, depth, nodes = sp
+            start = time.time()
+            mv, depth, nodes = search(state, t_table, computer_color="black")
+            end = time.time()
+            print(f"time: {end-start:.2f}s nodes: {nodes} depth: {depth} score: {evaluate(board)}")
+            board = board.move_piece(*mv)
             board.print_board()
             if board.is_checkmate():
                 print("Checkmate! black wins!")
                 save_q_table(q_table)
                 return
-            if board.is_draw(color for color in ['white', 'black']):
+            if board.is_draw(to_move=None):
                 print("Stalemate! It's a draw.")
                 save_q_table(q_table)
                 return
-            reward = 0
-            board.rotate()
-            if board.is_check():
-                reward = 1
-            board.rotate()
-            reward += evaluate(board) * -1
-            next_state = copy.deepcopy(board)
-            update_q_table(state, action, reward, next_state)
+            # Q-learn
+            reward = 1 if board.rotate().is_check() else 0
+            reward += -evaluate(board)
+            update_q_table(state, mv, reward, board)
             first_open = False
     else:
         print("Invalid choice.")
@@ -335,7 +325,7 @@ def sim_chess():
     t_table = {}
     board.print_board()
     while True:
-        state = Position()
+        state = copy.deepcopy(board)
         stime = time.time()
         white_move, depth, nodes = search(board, t_table, computer_color="white")
         #depth, nodes = "null", "null"
