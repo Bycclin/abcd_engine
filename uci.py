@@ -9,14 +9,9 @@ from functools import partial
 import main
 import piece
 
-# Print with automatic flush
 print = partial(print, flush=True)
 
 def go_loop(hist, stop_event, max_movetime=0, max_depth=0, debug=False):
-    """
-    The 'go' loop for processing moves using the engine.
-    It prints the best move and other relevant info in UCI format.
-    """
     if debug:
         print(f"Going movetime={max_movetime}, depth={max_depth}")
 
@@ -34,16 +29,13 @@ def go_loop(hist, stop_event, max_movetime=0, max_depth=0, debug=False):
         depth=max_depth, last_move=last_move
     )
 
-    score = main.evaluate(board)
+    score = piece.evaluate(board)
     uci_move = convert_move_to_uci(best_move[0], best_move[1], board)
 
     print(f"info depth {depth_reached} score cp {score} nodes {nodes_searched}")
     print(f"bestmove {uci_move}")
 
 def convert_move_to_uci(start_pos, end_pos, board, promotion=None):
-    """
-    Converts a move to UCI format (e.g., e2e4, e7e8q).
-    """
     start_row, start_col = start_pos
     end_row, end_col = end_pos
     piece_moved = board[start_row][start_col]
@@ -59,9 +51,6 @@ def convert_move_to_uci(start_pos, end_pos, board, promotion=None):
     return f"{start_file}{start_rank}{end_file}{end_rank}{promotion_piece}"
 
 def parse_fen(fen_str):
-    """
-    Parses a FEN string into a board representation.
-    """
     board = []
     fen_parts = fen_str.strip().split()
     rows = fen_parts[0].split('/')
@@ -76,9 +65,6 @@ def parse_fen(fen_str):
     return board
 
 def parse_uci_move(move_str):
-    """
-    Parses a UCI move string (e.g., e2e4, e7e8q) into a move tuple.
-    """
     if len(move_str) < 4:
         return None
     col_map = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
@@ -94,7 +80,6 @@ def parse_uci_move(move_str):
 
 version = "abcd 2025(1.5)"
 
-# Initialize history with the initial board state and no last move
 hist = [None, piece.Position(piece.initial, 0, (True, True), (True, True), (9, 8), 0)]
 debug = False
 
